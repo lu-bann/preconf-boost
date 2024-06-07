@@ -1,0 +1,52 @@
+[package]
+name = "preconf-boost"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cb-cli = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "d1475f4b639417e9ac0e73a39da581d935ab76f7" }
+cb-common = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "d1475f4b639417e9ac0e73a39da581d935ab76f7" }
+cb-pbs = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "d1475f4b639417e9ac0e73a39da581d935ab76f7" }
+cb-crypto = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "d1475f4b639417e9ac0e73a39da581d935ab76f7" }
+
+
+alloy-primitives = { version = "0.7.4", features = ["ssz"] }
+alloy-rpc-types-beacon = { git = "https://github.com/alloy-rs/alloy", rev = "64feb9bc51c8021ea08535694c44de84222f474e" }
+
+ethereum_ssz = "0.5"
+ethereum_ssz_derive = "0.5.3"
+ssz_types = "0.5"
+ethereum_serde_utils = "0.5.2"
+
+clap = { version = "4.5.4", features = ["derive", "env"] }
+
+# networking
+axum = "0.7.5"
+reqwest = { version = "0.12.4", features = ["blocking", "json"] }
+reqwest-eventsource = "0.6.0"
+
+# async
+tokio = { version = "1.37.0", features = ["full"] }
+futures = "0.3.30"
+
+# serialization
+serde = { version = "1.0.202", features = ["derive"] }
+serde_json = "1.0.117"
+serde_with = "3.3.0"
+
+# logging
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+
+# sync
+dashmap = "5.5.3"
+
+# crypto
+tree_hash = "0.5"
+tree_hash_derive = "0.5"
+
+# misc
+thiserror = "1.0.61"
+eyre = "0.6.12"
+url = "2.5.0"
+rand = "0.8.5"
