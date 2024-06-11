@@ -1,0 +1,6 @@
+[[modules]]
+id = "PRECONF"
+path = ""
+relays = []
+trusted_gateways = []
+beacon_nodes = []

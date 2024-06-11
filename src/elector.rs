@@ -1,14 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
-use alloy_rpc_types_beacon::BlsPublicKey;
-use cb_cli::runner::SignRequestSender;
-use cb_common::{pbs::RelayEntry, types::Chain};
+use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
+use cb_common::pbs::{COMMIT_BOOST_API, PUBKEYS_PATH, SIGN_REQUEST_PATH};
+use cb_common::types::Chain;
 use cb_crypto::types::SignRequest;
 
-use cb_pbs::{BuilderEvent, BuilderEventReceiver};
-use dashmap::DashSet;
 use futures::future::join_all;
-
 use rand::seq::SliceRandom;
 use reqwest::Client;
 use tokio::sync::mpsc;
@@ -16,22 +13,20 @@ use tracing::{error, info};
 
 use crate::{
     beacon_client::types::ProposerDuty,
+    config::PreconfConfig,
     types::{GatewayElection, SignedGatewayElection, ELECT_GATEWAY_PATH},
-    ID,
 };
 
 /// Commit module that delegates preconf rights to external gateway
 pub struct GatewayElector {
     pub chain: Chain,
-    /// List of trusted gateways to choose for election
-    pub trusted_gateways: Vec<BlsPublicKey>,
-    /// List of relays that support election
-    pub relays: Vec<RelayEntry>,
+    pub id: String,
+    pub url: String,
+    pub config: PreconfConfig,
 
     /// Slot being proposed
     pub next_slot: u64,
-    /// The validator pubkeys available
-    pub validator_pubkeys: Arc<DashSet<BlsPublicKey>>,
+
     /// Proposer duties indexed by slot number
     pub duties: HashMap<u64, ProposerDuty>,
 
@@ -45,20 +40,20 @@ pub struct GatewayElector {
 impl GatewayElector {
     pub fn new(
         chain: Chain,
-        trusted_gateways: Vec<BlsPublicKey>,
-        relays: Vec<RelayEntry>,
-
-        validator_pubkeys: Arc<DashSet<BlsPublicKey>>,
+        id: String,
+        url: String,
+        config: PreconfConfig,
 
         duties_rx: mpsc::UnboundedReceiver<Vec<ProposerDuty>>,
     ) -> Self {
         Self {
             chain,
-            trusted_gateways,
-            relays,
+            id,
+            url,
+            config,
 
             next_slot: 0,
-            validator_pubkeys,
+
             duties: HashMap::new(),
             elections: HashMap::new(),
 
@@ -68,7 +63,13 @@ impl GatewayElector {
 }
 
 impl GatewayElector {
-    pub async fn run(mut self, sign_tx: SignRequestSender) -> eyre::Result<()> {
+    pub async fn run(mut self) {
+        info!("Fetching validator pubkeys");
+
+        let validator_pubkeys = self.get_pubkeys().await;
+
+        info!("Fetched {} pubkeys", validator_pubkeys.len());
+
         while let Some(duties) = self.duties_rx.recv().await {
             self.duties.clear();
 
@@ -76,23 +77,22 @@ impl GatewayElector {
             let our_duties: Vec<_> = duties
                 .into_iter()
                 .filter(|d| {
-                    self.validator_pubkeys.contains(&d.public_key)
+                    validator_pubkeys.contains(&d.public_key)
                         && !self.elections.contains_key(&d.slot)
                 })
                 .collect();
 
             for duty in our_duties {
                 // this could be done in parallel
-                self.elect_gateway(&sign_tx, duty).await;
+                self.elect_gateway(duty).await;
             }
         }
-
-        Ok(())
     }
 
     /// Delegate preconf rights
-    async fn elect_gateway(&mut self, sign_tx: &SignRequestSender, duty: ProposerDuty) {
+    async fn elect_gateway(&mut self, duty: ProposerDuty) {
         let gateway_pubkey = *self
+            .config
             .trusted_gateways
             .choose(&mut rand::thread_rng())
             .unwrap();
@@ -106,66 +106,77 @@ impl GatewayElector {
             validator_index: duty.validator_index,
         };
 
-        let (request, sign_rx) = SignRequest::new(ID, duty.public_key, election_message.clone());
+        let request = SignRequest::builder(&self.id, duty.public_key).with_msg(&election_message);
+        let url = format!("{}{COMMIT_BOOST_API}{SIGN_REQUEST_PATH}", self.url);
 
-        if let Err(err) = sign_tx.send(request) {
-            error!(?err, "failed sending delegation sign request");
+        let response = reqwest::Client::new()
+            .post(url)
+            .json(&request)
+            .send()
+            .await
+            .expect("failed to get request");
+
+        let status = response.status();
+        let response_bytes = response.bytes().await.expect("failed to get bytes");
+
+        if !status.is_success() {
+            let err = String::from_utf8_lossy(&response_bytes).into_owned();
+            error!(err, "failed sending delegation sign request");
             return;
+        }
+
+        let signature: BlsSignature =
+            serde_json::from_slice(&response_bytes).expect("failed deser");
+
+        let signed_election = SignedGatewayElection {
+            message: election_message,
+            signature,
         };
 
-        match sign_rx.await {
-            Ok(Ok(signature)) => {
-                let signed_election = SignedGatewayElection {
-                    message: election_message,
-                    signature,
-                };
+        let mut handles = Vec::new();
 
-                let mut handles = Vec::new();
+        info!("Sending delegatotion");
 
-                for relay in &self.relays {
-                    let client = Client::new();
-                    handles.push(
-                        client
-                            .post(format!("{}/{ELECT_GATEWAY_PATH}", relay.url))
-                            .json(&signed_election)
-                            .send(),
-                    );
-                }
-
-                let results = join_all(handles).await;
-
-                for res in results {
-                    match res {
-                        Ok(r) => info!("Successful election: {r:?}"),
-                        Err(err) => error!("Failed election: {err}"),
-                    }
-                }
-            }
-
-            Ok(Err(err)) => {
-                error!(?err, "signature rejected")
-            }
-
-            Err(err) => {
-                error!(?err, "failed signing")
-            }
+        for relay in &self.config.relays {
+            let client = Client::new();
+            handles.push(
+                client
+                    .post(format!("{}/{ELECT_GATEWAY_PATH}", relay.url))
+                    .json(&signed_election)
+                    .send(),
+            );
         }
-    }
-}
 
-pub async fn run_delegation(
-    validator_pubkeys: Arc<DashSet<BlsPublicKey>>,
-    mut rx: BuilderEventReceiver,
-) -> eyre::Result<()> {
-    while let Ok(update) = rx.recv().await {
-        if let BuilderEvent::RegisterValidatorRequest(registrations) = update {
-            validator_pubkeys.clear();
+        let results = join_all(handles).await;
 
-            for reg in registrations {
-                validator_pubkeys.insert(reg.message.pubkey);
+        for res in results {
+            match res {
+                Ok(r) => info!("Successful election: {r:?}"),
+                Err(err) => error!("Failed election: {err}"),
             }
         }
     }
 
-    Ok(())
+    pub async fn get_pubkeys(&self) -> Vec<BlsPublicKey> {
+        let url = format!("{}{COMMIT_BOOST_API}{PUBKEYS_PATH}", self.url);
+        let response = reqwest::Client::new()
+            .get(url)
+            .send()
+            .await
+            .expect("failed to get request");
+
+        let status = response.status();
+        let response_bytes = response.bytes().await.expect("failed to get bytes");
+
+        if !status.is_success() {
+            let err = String::from_utf8_lossy(&response_bytes).into_owned();
+            error!(err, ?status, "failed to get signature");
+            std::process::exit(1);
+        }
+
+        let pubkeys: Vec<BlsPublicKey> =
+            serde_json::from_slice(&response_bytes).expect("failed deser");
+
+        pubkeys
+    }
 }
