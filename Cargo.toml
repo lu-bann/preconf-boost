@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cb-cli = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "6c8ece08a00871c5120396bd52c47203519e8c64" }
-cb-common = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "6c8ece08a00871c5120396bd52c47203519e8c64" }
-cb-pbs = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "6c8ece08a00871c5120396bd52c47203519e8c64" }
-cb-crypto = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "6c8ece08a00871c5120396bd52c47203519e8c64" }
+cb-cli = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "659f2f43103de91d47ac26c7a4594dd5ae92d043" }
+cb-common = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "659f2f43103de91d47ac26c7a4594dd5ae92d043" }
+cb-pbs = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "659f2f43103de91d47ac26c7a4594dd5ae92d043" }
+cb-crypto = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "659f2f43103de91d47ac26c7a4594dd5ae92d043" }
 
 
 alloy-primitives = { version = "0.7.4", features = ["ssz"] }
