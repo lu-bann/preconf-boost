@@ -83,7 +83,7 @@ impl GatewayElector {
                 })
                 .collect();
 
-            info!("Received {l} duties, we have {}", our_duties.len());
+            info!("Received {l} duties, we have {} to elect", our_duties.len());
 
             for duty in our_duties {
                 // this could be done in parallel
@@ -144,7 +144,7 @@ impl GatewayElector {
             let client = Client::new();
             handles.push(
                 client
-                    .post(format!("{}/{ELECT_GATEWAY_PATH}", relay.url))
+                    .post(format!("{}{ELECT_GATEWAY_PATH}", relay.url))
                     .json(&signed_election)
                     .send(),
             );
@@ -154,7 +154,17 @@ impl GatewayElector {
 
         for res in results {
             match res {
-                Ok(r) => info!("Successful election: {r:?}"),
+                Ok(response) => {
+                    let status = response.status();
+                    let response_bytes = response.bytes().await.expect("failed to get bytes");
+                    let ans = String::from_utf8_lossy(&response_bytes).into_owned();
+                    if !status.is_success() {
+                        error!(err = ans, "failed sending delegation sign request");
+                        continue;
+                    }
+
+                    info!("Successful election: {ans:?}")
+                }
                 Err(err) => error!("Failed election: {err}"),
             }
         }
