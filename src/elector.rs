@@ -109,10 +109,10 @@ impl GatewayElector {
         };
 
         let election_message = ElectedPreconfer {
-            gateway_info,
-            slot: self.next_slot,
-            validator_index: duty.validator_index,
+            slot: duty.slot,
             proposer_public_key: duty.public_key,
+            validator_index: duty.validator_index,
+            gateway_info,
         };
 
         let request = SignRequest::builder(&self.id, duty.public_key).with_msg(&election_message);
@@ -145,6 +145,10 @@ impl GatewayElector {
         let mut handles = Vec::new();
 
         info!("Received delegation signature: {signature}");
+        info!(
+            "Sending delegation {}",
+            serde_json::to_string(&signed_election).unwrap()
+        );
 
         for relay in &self.config.relays {
             let client = Client::new();
