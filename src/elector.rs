@@ -74,6 +74,7 @@ impl GatewayElector {
             self.duties.clear();
 
             // filter only slots where we're proposer and we havent elected yet
+            let l = duties.len();
             let our_duties: Vec<_> = duties
                 .into_iter()
                 .filter(|d| {
@@ -81,6 +82,8 @@ impl GatewayElector {
                         && !self.elections.contains_key(&d.slot)
                 })
                 .collect();
+
+            info!("Received {l} duties, we have {}", our_duties.len());
 
             for duty in our_duties {
                 // this could be done in parallel
@@ -97,7 +100,7 @@ impl GatewayElector {
             .choose(&mut rand::thread_rng())
             .unwrap();
 
-        info!(validator_pubkey = %duty.public_key, %gateway_pubkey, slot = duty.slot, "Sending gateway delegation");
+        info!(slot = duty.slot, validator_pubkey = %duty.public_key, %gateway_pubkey,  "Sending gateway delegation");
 
         let election_message = GatewayElection {
             gateway_pubkey,
@@ -135,7 +138,7 @@ impl GatewayElector {
 
         let mut handles = Vec::new();
 
-        info!("Sending delegatotion");
+        info!("Received delegation signature: {signature}");
 
         for relay in &self.config.relays {
             let client = Client::new();
