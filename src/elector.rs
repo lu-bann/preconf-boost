@@ -159,7 +159,7 @@ impl GatewayElector {
                     let response_bytes = response.bytes().await.expect("failed to get bytes");
                     let ans = String::from_utf8_lossy(&response_bytes).into_owned();
                     if !status.is_success() {
-                        error!(err = ans, "failed sending delegation sign request");
+                        error!(err = ans, ?status, "failed sending delegation sign request");
                         continue;
                     }
 
