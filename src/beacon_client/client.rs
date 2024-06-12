@@ -139,7 +139,7 @@ impl MultiBeaconClient {
         self.subscribe_to_payload_attributes_events(payload_tx);
 
         const EPOCH_SLOTS: u64 = 32;
-        const EPOCH_REFRESH: u64 = EPOCH_SLOTS / 2;
+        const EPOCH_REFRESH: u64 = EPOCH_SLOTS / 4;
         let mut last_updated_slot = 0;
 
         while let Ok(payload) = payload_rx.recv().await {
