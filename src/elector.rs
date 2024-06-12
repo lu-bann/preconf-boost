@@ -11,10 +11,11 @@ use reqwest::Client;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
+use crate::types::{ElectedPreconfer, GatewayInfo};
 use crate::{
     beacon_client::types::ProposerDuty,
     config::PreconfConfig,
-    types::{GatewayElection, SignedGatewayElection, ELECT_GATEWAY_PATH},
+    types::{SignedPreconferElection, ELECT_GATEWAY_PATH},
 };
 
 /// Commit module that delegates preconf rights to external gateway
@@ -102,11 +103,16 @@ impl GatewayElector {
 
         info!(slot = duty.slot, validator_pubkey = %duty.public_key, %gateway_pubkey,  "Sending gateway delegation");
 
-        let election_message = GatewayElection {
-            gateway_pubkey,
+        let gateway_info = GatewayInfo {
+            gateway_public_key: gateway_pubkey,
+            gateway_recipient_address: ethereum_types::Address::default(),
+        };
+
+        let election_message = ElectedPreconfer {
+            gateway_info,
             slot: self.next_slot,
-            validator_pubkey: duty.public_key,
             validator_index: duty.validator_index,
+            proposer_public_key: duty.public_key,
         };
 
         let request = SignRequest::builder(&self.id, duty.public_key).with_msg(&election_message);
@@ -131,7 +137,7 @@ impl GatewayElector {
         let signature: BlsSignature =
             serde_json::from_slice(&response_bytes).expect("failed deser");
 
-        let signed_election = SignedGatewayElection {
+        let signed_election = SignedPreconferElection {
             message: election_message,
             signature,
         };
