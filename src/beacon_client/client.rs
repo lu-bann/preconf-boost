@@ -9,7 +9,7 @@ use std::{
 };
 
 use alloy_primitives::B256;
-use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
+use alloy_rpc_types_beacon::events::{HeadEvent, PayloadAttributesEvent};
 use futures::{future::join_all, StreamExt};
 use reqwest_eventsource::EventSource;
 use tokio::{
@@ -122,7 +122,10 @@ impl MultiBeaconClient {
     ///
     /// This function swaps async tasks for all beacon clients. Therefore,
     /// a single payload event will be received multiple times, likely once for every beacon node.
-    pub fn subscribe_to_payload_attributes_events(&self, chan: Sender<PayloadAttributesEvent>) {
+    pub async fn subscribe_to_payload_attributes_events(
+        &self,
+        chan: Sender<PayloadAttributesEvent>,
+    ) {
         let clients = self.beacon_clients_by_last_response();
 
         for (_, client) in clients {
@@ -133,30 +136,60 @@ impl MultiBeaconClient {
         }
     }
 
-    pub async fn start_proposer_duties_sub(self, duties_tx: UnboundedSender<Vec<ProposerDuty>>) {
-        let (payload_tx, mut payload_rx) = broadcast::channel(10);
+    /// `subscribe_to_head_events` subscribes to head events from all beacon nodes.
+    ///
+    /// This function swaps async tasks for all beacon clients. Therefore,
+    /// a single head event will be received multiple times, likely once for every beacon node.
+    pub async fn subscribe_to_head_events(&self, chan: Sender<HeadEvent>) {
+        let clients = self.beacon_clients_by_last_response();
 
-        self.subscribe_to_payload_attributes_events(payload_tx);
+        for (_, client) in clients {
+            let chan = chan.clone();
+            tokio::spawn(async move {
+                client.subscribe_to_head_events(chan).await;
+            });
+        }
+    }
 
+    pub async fn subscribe_to_proposer_duties(
+        self,
+        tx: UnboundedSender<Vec<ProposerDuty>>,
+        mut rx: broadcast::Receiver<PayloadAttributesEvent>,
+    ) {
         const EPOCH_SLOTS: u64 = 32;
-        const EPOCH_REFRESH: u64 = EPOCH_SLOTS / 4;
+        const EPOCH_REFRESH: u64 = EPOCH_SLOTS / 2;
         let mut last_updated_slot = 0;
 
-        while let Ok(payload) = payload_rx.recv().await {
+        while let Ok(payload) = rx.recv().await {
             let new_slot = payload.data.proposal_slot;
-            if new_slot > last_updated_slot && new_slot % EPOCH_REFRESH == 0 {
+            if last_updated_slot == 0
+                || (new_slot > last_updated_slot && new_slot % EPOCH_REFRESH == 0)
+            {
                 last_updated_slot = new_slot;
 
                 let epoch = new_slot / EPOCH_SLOTS;
+
+                // Fetch for `epoch` and `epoch + 1`;
+                let mut all_duties = Vec::with_capacity(64);
                 match self.get_proposer_duties(epoch).await {
-                    Ok((_, duties)) => {
-                        if let Err(err) = duties_tx.send(duties) {
-                            error!(?err, "failed sending duties");
-                        }
+                    Ok((_, mut duties)) => {
+                        all_duties.append(&mut duties);
                     }
                     Err(err) => {
-                        error!(?err, "failed fetching duties")
+                        error!(?err, %epoch, "failed fetching duties")
                     }
+                }
+                match self.get_proposer_duties(epoch + 1).await {
+                    Ok((_, mut duties)) => {
+                        all_duties.append(&mut duties);
+                    }
+                    Err(err) => {
+                        error!(?err, epoch=%epoch+1, "failed fetching duties")
+                    }
+                }
+
+                if let Err(err) = tx.send(all_duties) {
+                    error!(?err, "failed sending duties");
                 }
             }
         }
@@ -239,6 +272,11 @@ impl BeaconClient {
     ) {
         self.subscribe_to_sse("payload_attributes", chan).await
     }
+
+    async fn subscribe_to_head_events(&self, chan: Sender<HeadEvent>) {
+        self.subscribe_to_sse("head", chan).await
+    }
+
     /// Subscribe to SSE events from the beacon client `events` endpoint.
     pub async fn subscribe_to_sse<T: serde::de::DeserializeOwned>(
         &self,
