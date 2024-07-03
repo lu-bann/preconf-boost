@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use alloy_rpc_types_beacon::BlsPublicKey;
+use alloy::rpc::types::beacon::BlsPublicKey;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 
@@ -44,8 +44,8 @@ pub struct ProposerDuty {
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::hex::FromHex;
-    use alloy_rpc_types_beacon::BlsPublicKey;
+    use alloy::hex::FromHex;
+    use alloy::rpc::types::beacon::BlsPublicKey;
 
     use super::{BeaconResponse, ProposerDuty};
 

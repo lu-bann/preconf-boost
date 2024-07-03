@@ -1,4 +1,4 @@
-use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use serde::{Deserialize, Serialize};
 use tree_hash_derive::TreeHash;
 

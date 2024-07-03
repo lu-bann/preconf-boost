@@ -8,8 +8,10 @@ use std::{
     time::Duration,
 };
 
-use alloy_primitives::B256;
-use alloy_rpc_types_beacon::events::{HeadEvent, PayloadAttributesEvent};
+use alloy::{
+    primitives::B256,
+    rpc::types::beacon::events::{HeadEvent, PayloadAttributesEvent},
+};
 use futures::{future::join_all, StreamExt};
 use reqwest_eventsource::EventSource;
 use tokio::{
