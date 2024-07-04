@@ -7,4 +7,5 @@ pub struct PreconfConfig {
     pub relays: Vec<RelayEntry>,
     pub trusted_gateways: Vec<BlsPublicKey>,
     pub beacon_nodes: Vec<String>,
+    pub chain_id: u64,
 }

@@ -10,11 +10,10 @@ use reqwest::Client;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
-use crate::types::{ElectedPreconfer, GatewayInfo};
 use crate::{
     beacon_client::types::ProposerDuty,
     config::PreconfConfig,
-    types::{SignedPreconferElection, ELECT_GATEWAY_PATH},
+    types::{PreconferElection, SignedPreconferElection, ELECT_GATEWAY_PATH},
 };
 
 /// Commit module that delegates preconf rights to external gateway
@@ -22,7 +21,7 @@ pub struct GatewayElector {
     pub config: StartModuleConfig<PreconfConfig>,
 
     /// Slot being proposed
-    pub next_slot: u64,
+    _next_slot: u64,
 
     /// Proposer duties indexed by slot number
     pub duties: HashMap<u64, ProposerDuty>,
@@ -41,7 +40,7 @@ impl GatewayElector {
     ) -> Self {
         Self {
             config,
-            next_slot: 0,
+            _next_slot: 0,
 
             duties: HashMap::new(),
             elections: HashMap::new(),
@@ -95,16 +94,11 @@ impl GatewayElector {
 
         info!(slot = duty.slot, validator_pubkey = %duty.public_key, %gateway_pubkey,  "Sending gateway delegation");
 
-        let gateway_info = GatewayInfo {
-            gateway_public_key: gateway_pubkey,
-            gateway_recipient_address: ethereum_types::Address::default(),
-        };
-
-        let election_message = ElectedPreconfer {
-            slot: duty.slot,
-            proposer_public_key: duty.public_key,
-            validator_index: duty.validator_index,
-            gateway_info,
+        let election_message = PreconferElection {
+            preconfer_pubkey: gateway_pubkey,
+            slot_number: duty.slot,
+            chain_id: self.config.extra.chain_id,
+            gas_limit: 0,
         };
 
         let request =

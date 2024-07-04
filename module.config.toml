@@ -4,3 +4,4 @@ path = ""
 relays = []
 trusted_gateways = []
 beacon_nodes = []
+chain_id = 1
