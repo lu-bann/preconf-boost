@@ -44,8 +44,7 @@ pub struct ProposerDuty {
 
 #[cfg(test)]
 mod tests {
-    use alloy::hex::FromHex;
-    use alloy::rpc::types::beacon::BlsPublicKey;
+    use alloy::{primitives::hex::FromHex, rpc::types::beacon::BlsPublicKey};
 
     use super::{BeaconResponse, ProposerDuty};
 

@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -30,8 +29,12 @@ use crate::beacon_client::{
     types::{ApiResult, BeaconResponse, ProposerDuty, SyncStatus},
 };
 
+const EPOCH_SLOTS: u64 = 32;
 const BEACON_CLIENT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const PROPOSER_DUTIES_REFRESH_FREQ: u64 = EPOCH_SLOTS / 4;
 
+/// Handles communication with multiple `BeaconClient` instances.
+/// Load balances requests.
 #[derive(Clone)]
 pub struct MultiBeaconClient {
     /// Vec of all beacon clients with a fixed usize ID used when
@@ -52,7 +55,6 @@ impl MultiBeaconClient {
     }
 
     pub fn from_endpoint_strs(endpoints: &[String]) -> Self {
-        debug!("creating new multi beacon client");
         let clients = endpoints
             .iter()
             .map(|endpoint| Arc::new(BeaconClient::from_endpoint_str(endpoint)))
@@ -86,7 +88,7 @@ impl MultiBeaconClient {
                             best_sync_status = Some(sync_status);
                         }
                     }
-                    Err(err) => error!("Failed to get sync status: {err:?}"),
+                    Err(err) => warn!("Failed to get sync status: {err:?}"),
                 },
                 Err(join_err) => {
                     error!("Tokio join error for best_sync_status: {join_err:?}")
@@ -153,46 +155,27 @@ impl MultiBeaconClient {
         }
     }
 
+    /// `subscribe_to_proposer_duties` listens to new `PayloadAttributesEvent`s through `rx`.
+    /// Fetches the chain proposer duties every 8 slots and sends them down `tx`.
     pub async fn subscribe_to_proposer_duties(
         self,
         tx: UnboundedSender<Vec<ProposerDuty>>,
         mut rx: broadcast::Receiver<PayloadAttributesEvent>,
     ) {
-        const EPOCH_SLOTS: u64 = 32;
-        const EPOCH_REFRESH: u64 = EPOCH_SLOTS / 2;
         let mut last_updated_slot = 0;
 
         while let Ok(payload) = rx.recv().await {
             let new_slot = payload.data.proposal_slot;
+
             if last_updated_slot == 0
-                || (new_slot > last_updated_slot && new_slot % EPOCH_REFRESH == 0)
+                || (new_slot > last_updated_slot && new_slot % PROPOSER_DUTIES_REFRESH_FREQ == 0)
             {
                 last_updated_slot = new_slot;
-
-                let epoch = new_slot / EPOCH_SLOTS;
-
-                // Fetch for `epoch` and `epoch + 1`;
-                let mut all_duties = Vec::with_capacity(64);
-                match self.get_proposer_duties(epoch).await {
-                    Ok((_, mut duties)) => {
-                        all_duties.append(&mut duties);
-                    }
-                    Err(err) => {
-                        error!(?err, %epoch, "failed fetching duties")
-                    }
-                }
-                match self.get_proposer_duties(epoch + 1).await {
-                    Ok((_, mut duties)) => {
-                        all_duties.append(&mut duties);
-                    }
-                    Err(err) => {
-                        error!(?err, epoch=%epoch+1, "failed fetching duties")
-                    }
-                }
-
-                if let Err(err) = tx.send(all_duties) {
-                    error!(?err, "failed sending duties");
-                }
+                tokio::spawn(fetch_and_send_duties_for_slot(
+                    new_slot,
+                    tx.clone(),
+                    self.clone(),
+                ));
             }
         }
     }
@@ -212,6 +195,7 @@ impl MultiBeaconClient {
     }
 }
 
+/// Handles communication to a single beacon client url.
 #[derive(Clone, Debug)]
 pub struct BeaconClient {
     pub http: reqwest::Client,
@@ -312,5 +296,36 @@ impl BeaconClient {
             }
             sleep(Duration::from_millis(500)).await;
         }
+    }
+}
+
+async fn fetch_and_send_duties_for_slot(
+    slot: u64,
+    tx: UnboundedSender<Vec<ProposerDuty>>,
+    beacon_client: MultiBeaconClient,
+) {
+    let epoch = slot / EPOCH_SLOTS;
+
+    // Fetch for `epoch` and `epoch + 1`;
+    let mut all_duties = Vec::with_capacity(64);
+    match beacon_client.get_proposer_duties(epoch).await {
+        Ok((_, mut duties)) => {
+            all_duties.append(&mut duties);
+        }
+        Err(err) => {
+            warn!(?err, %epoch, "failed fetching duties")
+        }
+    }
+    match beacon_client.get_proposer_duties(epoch + 1).await {
+        Ok((_, mut duties)) => {
+            all_duties.append(&mut duties);
+        }
+        Err(err) => {
+            warn!(?err, epoch=%epoch+1, "failed fetching duties")
+        }
+    }
+
+    if let Err(err) = tx.send(all_duties) {
+        error!(?err, "error sending duties");
     }
 }
