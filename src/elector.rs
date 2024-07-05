@@ -24,10 +24,10 @@ pub struct GatewayElector {
     _next_slot: u64,
 
     /// Proposer duties indexed by slot number
-    pub duties: HashMap<u64, ProposerDuty>,
+    // pub duties: HashMap<u64, ProposerDuty>,
 
     /// Elected gateways by slot
-    elections: HashMap<u64, BlsPublicKey>,
+    _elections: HashMap<u64, BlsPublicKey>,
 
     /// Channel to receive proposer duties updates
     duties_rx: mpsc::UnboundedReceiver<Vec<ProposerDuty>>,
@@ -41,9 +41,7 @@ impl GatewayElector {
         Self {
             config,
             _next_slot: 0,
-
-            duties: HashMap::new(),
-            elections: HashMap::new(),
+            _elections: HashMap::new(),
 
             duties_rx,
         }
@@ -67,17 +65,12 @@ impl GatewayElector {
         info!("Fetched {} pubkeys", consensus_pubkeys.len());
 
         while let Some(duties) = self.duties_rx.recv().await {
-            self.duties.clear();
-
-            // filter only slots where we're proposer and we havent elected yet
+            // filter only slots where we're proposer
             // TODO: filter out past slots
             let l = duties.len();
             let our_duties: Vec<_> = duties
                 .into_iter()
-                .filter(|d| {
-                    consensus_pubkeys.contains(&d.public_key)
-                        && !self.elections.contains_key(&d.slot)
-                })
+                .filter(|d| consensus_pubkeys.contains(&d.public_key))
                 .collect();
 
             info!("Received {l} duties, we have {} to elect", our_duties.len());
