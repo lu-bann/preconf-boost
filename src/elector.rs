@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use alloy::rpc::types::beacon::BlsPublicKey;
 use cb_common::commit::request::SignRequest;
@@ -7,13 +7,13 @@ use cb_common::config::StartModuleConfig;
 use futures::future::join_all;
 use rand::seq::SliceRandom;
 use reqwest::Client;
-use tokio::sync::mpsc;
-use tracing::{error, info};
+use tokio::{sync::mpsc, time::sleep};
+use tracing::{error, info, warn};
 
 use crate::{
     beacon_client::types::ProposerDuty,
     config::PreconfConfig,
-    types::{PreconferElection, SignedPreconferElection, ELECT_GATEWAY_PATH},
+    types::{PreconferElection, SignedPreconferElection, ELECT_PRECONFER_PATH},
 };
 
 /// Commit module that delegates preconf rights to external gateway
@@ -53,7 +53,17 @@ impl GatewayElector {
 impl GatewayElector {
     pub async fn run(mut self) -> eyre::Result<()> {
         info!("Fetching validator pubkeys");
-        let consensus_pubkeys = self.config.signer_client.get_pubkeys().await?.consensus;
+
+        let consensus_pubkeys = match self.config.signer_client.get_pubkeys().await {
+            Ok(pubkeys) => pubkeys.consensus,
+            Err(err) => {
+                // very hacky, FIXME
+                warn!("Failed to fetch pubkeys: {err}");
+                info!("Waiting a bit before retrying");
+                sleep(Duration::from_secs(10)).await;
+                self.config.signer_client.get_pubkeys().await?.consensus
+            }
+        };
         info!("Fetched {} pubkeys", consensus_pubkeys.len());
 
         while let Some(duties) = self.duties_rx.recv().await {
@@ -127,7 +137,7 @@ impl GatewayElector {
             let client = Client::new();
             handles.push(
                 client
-                    .post(format!("{}{ELECT_GATEWAY_PATH}", relay.url))
+                    .post(format!("{}{ELECT_PRECONFER_PATH}", relay.url))
                     .json(&signed_election)
                     .send(),
             );
